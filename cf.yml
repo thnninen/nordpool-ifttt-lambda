@@ -169,14 +169,28 @@ Resources:
         Properties:
             Name: "nordpool-ifttt-lambda"
             Source:
-                BuildSpec: "buildspec.yml"
-                GitCloneDepth: 1
-                GitSubmodulesConfig:
-                    FetchSubmodules: false
-                InsecureSsl: false
-                Location: "https://bitbucket.org/thnninen/nordpool-ifttt-lambda.git"
-                ReportBuildStatus: false
-                Type: "BITBUCKET"
+                BuildSpec: |
+                  version: 0.2
+                  phases:
+                    install:
+                      commands:
+                        - git clone https://github.com/thnninen/nordpool-ifttt-lambda.git
+                        - cd nordpool-ifttt-lambda
+                        - npm install
+                    build:
+                      commands:
+                        - echo Build started on `date`
+                        - zip -r function.zip .
+
+                    post_build:
+                      commands:
+                        - aws s3 cp function.zip s3://$artifactBucket/nordpool-ifttt-lambd/
+                        - echo Build Phase Complete
+                        - aws lambda update-function-code --function-name nordpool-ifttt-lambda --s3-bucket $artifactBucket --s3-key  nordpool-ifttt-lambd/function.zip
+                    artifacts:
+                      files:
+                        - nordpool-ifttt-lambda/function.zip
+                Type: "NO_SOURCE"
             Artifacts:
                 EncryptionDisabled: false
                 Location: !Ref S3Bucket
