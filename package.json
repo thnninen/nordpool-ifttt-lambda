@@ -1,0 +1,22 @@
+{
+  "name": "nordpool-ifttt-lambda",
+  "version": "0.0.1",
+  "description": "Check Nordpool energy prices and set IFTTT triggers based on your limits",
+  "main": "index.js",
+  "type": "module",
+  "keywords": [
+    "Nordpool",
+    "energy",
+    "price",
+    "IFTTT",
+    "electricity"
+  ],
+  "author": "Teemu Hänninen",
+  "license": "ISC",
+  "dependencies": {
+    "nordpool": "^4.0.0",
+    "@aws-sdk/client-dynamodb": "*",
+    "@aws-sdk/util-dynamodb": "*"
+
+  }
+}

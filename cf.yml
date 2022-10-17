@@ -1,0 +1,214 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Metadata:
+    Generator: "former2"
+Description: ""
+Parameters:
+  IftttKey:
+    Type: String
+
+Resources:
+    DynamoDBTable:
+        Type: "AWS::DynamoDB::Table"
+        Properties:
+            AttributeDefinitions:
+              -
+                AttributeName: "time"
+                AttributeType: "S"
+            BillingMode: "PAY_PER_REQUEST"
+            TableName: "nordpool-ifttt-events"
+            KeySchema:
+              -
+                AttributeName: "time"
+                KeyType: "HASH"
+            TimeToLiveSpecification:
+                AttributeName: "expiry"
+                Enabled: true
+
+    IAMRole4:
+        Type: "AWS::IAM::Role"
+        Properties:
+            Path: "/service-role/"
+            RoleName: !Sub "nordpool-ifttt-lambda-role"
+            AssumeRolePolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Principal:
+                    Service:
+                      - lambda.amazonaws.com
+                  Action:
+                    - 'sts:AssumeRole'
+            MaxSessionDuration: 3600
+            ManagedPolicyArns:
+              - !Sub "arn:aws:iam::${AWS::AccountId}:policy/service-role/AWSLambdaBasicExecutionRole-8c6a9809-3e28-432a-94a6-36264028a302"
+              - "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
+
+
+    LambdaFunction:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: ""
+            Environment:
+                Variables:
+                    area: "FI"
+                    currency: "EUR"
+                    currencySubUnit: "snt"
+                    highTreshold: "15"
+                    lowTreshold: "5"
+                    maxOnHours: "8"
+                    defOnHours: "6"
+                    minOnHours: "4"
+                    vatPercent: "24"
+                    iftttKey: !Ref IftttKey
+                    debugLevel: "1"
+            FunctionName: nordpool-ifttt-lambda
+            Code:
+              ZipFile: |
+                exports.handler = function(event, context) {
+                  // Just a placeholder.
+                  }
+            Handler: "index.handler"
+            Architectures:
+              - "x86_64"
+            MemorySize: 128
+            Role: !GetAtt IAMRole4.Arn
+            Runtime: "nodejs16.x"
+            Timeout: 90
+            TracingConfig:
+                Mode: "PassThrough"
+            EphemeralStorage:
+                Size: 512
+
+
+    IAMRole3:
+        Type: "AWS::IAM::Role"
+        Properties:
+            Path: "/service-role/"
+            RoleName: !Sub "codebuild-${LambdaFunction}-service-role"
+            AssumeRolePolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Principal:
+                    Service:
+                      - codebuild.amazonaws.com
+                  Action:
+                    - 'sts:AssumeRole'
+            MaxSessionDuration: 3600
+            ManagedPolicyArns:
+              - "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRoleForLambda"
+              - !Sub "arn:aws:iam::${AWS::AccountId}:policy/service-role/CodeBuildCloudWatchLogsPolicy-${LambdaFunction}-${AWS::Region}"
+              - !Sub "arn:aws:iam::${AWS::AccountId}:policy/service-role/CodeBuildBasePolicy-${LambdaFunction}-${AWS::Region}"
+
+    S3Bucket:
+        Type: "AWS::S3::Bucket"
+        Properties:
+            BucketName: !Join
+              - '-'
+              - - 'nordpool-ifttt-artifacts'
+                - !Ref AWS::AccountId
+                - !Ref AWS::Region
+            BucketEncryption:
+                ServerSideEncryptionConfiguration:
+                  -
+                    ServerSideEncryptionByDefault:
+                        SSEAlgorithm: "AES256"
+                    BucketKeyEnabled: false
+
+    EventsRule:
+        Type: "AWS::Events::Rule"
+        Properties:
+            Name: "NordPoolEvents"
+            ScheduleExpression: "cron(0 * * * ? *)"
+            State: "ENABLED"
+            Targets:
+              -
+                Arn: !GetAtt LambdaFunction.Arn
+                Id: "Id6730177b-c662-4773-8267-1a6783461767"
+                Input: |
+                    {
+                      "key1": "fetch"
+                    }
+                RetryPolicy:
+                    MaximumRetryAttempts: 5
+                    MaximumEventAgeInSeconds: 3600
+            EventBusName: "default"
+
+    EventsRule2:
+        Type: "AWS::Events::Rule"
+        Properties:
+            Name: "NordpoolGetPrices"
+            ScheduleExpression: "cron(0 19 * * ? *)"
+            State: "ENABLED"
+            Targets:
+              -
+                Arn: !GetAtt LambdaFunction.Arn
+                Id: "Id16c565a3-4d5c-4b93-ab1f-0b75514fa159"
+                RetryPolicy:
+                    MaximumRetryAttempts: 10
+            EventBusName: "default"
+
+    EventBridgeLambdaPermission:
+      Type: AWS::Lambda::Permission
+      Properties:
+        FunctionName: !GetAtt LambdaFunction.Arn
+        Action: lambda:InvokeFunction
+        Principal: events.amazonaws.com
+        SourceArn: !GetAtt EventsRule.Arn
+
+    EventBridgeLambdaPermission2:
+      Type: AWS::Lambda::Permission
+      Properties:
+        FunctionName: !GetAtt LambdaFunction.Arn
+        Action: lambda:InvokeFunction
+        Principal: events.amazonaws.com
+        SourceArn: !GetAtt EventsRule2.Arn
+
+    CodeBuildProject:
+        Type: "AWS::CodeBuild::Project"
+        Properties:
+            Name: "nordpool-ifttt-lambda"
+            Source:
+                BuildSpec: "buildspec.yml"
+                GitCloneDepth: 1
+                GitSubmodulesConfig:
+                    FetchSubmodules: false
+                InsecureSsl: false
+                Location: "https://bitbucket.org/thnninen/nordpool-ifttt-lambda.git"
+                ReportBuildStatus: false
+                Type: "BITBUCKET"
+            Artifacts:
+                EncryptionDisabled: false
+                Location: !Ref S3Bucket
+                Name: "nordpool-ifttt-lambda"
+                NamespaceType: "NONE"
+                OverrideArtifactName: false
+                Packaging: "ZIP"
+                Path: ""
+                Type: "S3"
+            Cache:
+                Type: "NO_CACHE"
+            Environment:
+                ComputeType: "BUILD_GENERAL1_SMALL"
+                Image: "aws/codebuild/amazonlinux2-x86_64-standard:4.0"
+                ImagePullCredentialsType: "CODEBUILD"
+                EnvironmentVariables:
+                  - Name: artifactBucket
+                    Type: PLAINTEXT
+                    Value:  !Ref S3Bucket
+                PrivilegedMode: true
+                Type: "LINUX_CONTAINER"
+            ServiceRole: !GetAtt IAMRole3.Arn
+            TimeoutInMinutes: 60
+            QueuedTimeoutInMinutes: 479
+            EncryptionKey: !Sub "arn:aws:kms:${AWS::Region}:${AWS::AccountId}:alias/aws/s3"
+            BadgeEnabled: false
+            LogsConfig:
+                CloudWatchLogs:
+                    Status: "ENABLED"
+                    GroupName: "codebuild-logs"
+                    StreamName: "nordclouf-ifttt-lambda"
+                S3Logs:
+                    Status: "DISABLED"
+                    EncryptionDisabled: false
+            Visibility: "PRIVATE"
